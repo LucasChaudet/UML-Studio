@@ -81,18 +81,37 @@ dialog::backdrop{background:rgba(20,30,50,.35)}
 .kinds button span{color:var(--muted);font-size:12px}
 .proj small{color:var(--muted);font-weight:400;font-size:11px}
 select#kind{width:auto}
+#help{width:min(980px,94vw);height:min(720px,88vh);padding:0;overflow:hidden}
+#help[open]{display:grid;grid-template-columns:210px 1fr;grid-template-rows:1fr}
+#helpNav{background:#f6f8fb;border-right:1px solid var(--line);padding:14px 10px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+#helpNav h4{margin:0 6px 8px}
+#helpNav button{border:0;background:transparent;justify-content:flex-start;text-align:left;width:100%;padding:7px 10px}
+#helpNav button.on{background:var(--accent-soft);color:#1f3fa8;font-weight:600}
+#helpBody{overflow:auto;padding:22px 28px 30px;line-height:1.6;font-size:13.5px}
+#helpBody h2{margin:0 0 12px;font-size:20px}
+#helpBody h3{margin:22px 0 6px;font-size:14.5px}
+#helpBody p,#helpBody ul,#helpBody ol{margin:6px 0}
+#helpBody li{margin:3px 0}
+#helpBody table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}
+#helpBody th,#helpBody td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+#helpBody th{background:#f6f8fb}
+#helpBody .tip{background:var(--accent-soft);border-radius:8px;padding:8px 12px;margin:10px 0}
+#helpBody a{color:var(--accent);cursor:pointer;text-decoration:underline}
+#helpClose{position:absolute;top:10px;right:12px}
+@media(max-width:760px){#help[open]{grid-template-columns:1fr;grid-template-rows:auto 1fr}#helpNav{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}#helpNav h4{display:none}#helpNav button{width:auto}}
 @media(max-width:980px){main{grid-template-columns:200px 1fr 220px}#pname{width:140px}}
 </style>
 </head>
 <body>
 <header>
-  <div class="logo"><i></i>UML Studio <small style="color:var(--muted);font-weight:400" title="Numéro de version de la page">v1.12</small></div>
+  <div class="logo"><i></i>UML Studio <small style="color:var(--muted);font-weight:400" title="Numéro de version de la page">v1.13</small></div>
   <input id="pname" type="text" placeholder="Nom du projet" aria-label="Nom du projet">
   <select id="kind" aria-label="Type de diagramme"></select>
   <button class="ghost" id="undo" title="Annuler (Ctrl+Z)">↶ Annuler</button>
   <button class="ghost" id="redo" title="Rétablir (Ctrl+Y)">↷ Rétablir</button>
   <div class="sp"></div>
   <span id="status"></span>
+  <button class="ghost" id="helpBtn" title="Documentation (F1)">? Aide</button>
   <button class="primary" id="exPdf">Télécharger en PDF</button>
   <div class="menu" id="menu">
     <button id="menuBtn" aria-label="Plus d'options">⋯ Plus</button>
@@ -139,6 +158,11 @@ select#kind{width:auto}
   <h3 style="margin:0">Nouveau diagramme</h3>
   <div class="kinds" id="kinds"></div>
   <div style="text-align:right"><button id="dlgCancel">Annuler</button></div>
+</dialog>
+<dialog id="help">
+  <nav id="helpNav" aria-label="Sections de l'aide"></nav>
+  <div id="helpBody"></div>
+  <button id="helpClose" class="ghost" aria-label="Fermer l'aide">✕ Fermer</button>
 </dialog>
 <script>
 'use strict';
@@ -1072,6 +1096,186 @@ $('#file').onchange=async e=>{
 };
 $('#menuBtn').onclick=e=>{e.stopPropagation();$('#menu').classList.toggle('open')};
 document.addEventListener('click',()=>$('#menu').classList.remove('open'));
+
+/* ---------- Aide / documentation ---------- */
+const HELP=[
+{id:'start',t:'Démarrer',h:`
+<p>UML Studio sert à dessiner des diagrammes UML directement dans le navigateur. Tout est enregistré automatiquement.</p>
+<ol>
+<li><b>Créer un diagramme</b> : cliquez sur <b>+ Nouveau projet</b> (colonne de gauche) et choisissez le type. Vous pourrez le changer plus tard avec la liste située à côté du nom.</li>
+<li><b>Nommer le projet</b> : champ en haut, à côté du logo.</li>
+<li><b>Ajouter des éléments</b> : cliquez sur un élément de la palette « Éléments » (à gauche) ou glissez-le sur la zone de dessin.</li>
+<li><b>Les relier</b> : choisissez un type de lien dans la barre du haut, puis cliquez l'élément de départ et l'élément d'arrivée.</li>
+<li><b>Modifier</b> : cliquez sur un élément ou un lien, ses propriétés s'affichent à droite (nom, texte, taille, couleur…).</li>
+<li><b>Exporter</b> : <b>Télécharger en PDF</b> en haut à droite, les autres formats sont dans <b>⋯ Plus</b>.</li>
+</ol>
+<div class="tip">Cette aide s'ouvre à tout moment avec le bouton <b>? Aide</b> ou la touche <b>F1</b>. Le numéro de version de la page est affiché à côté du logo.</div>
+<h3>Se déplacer dans le dessin</h3>
+<ul><li><b>Molette</b> : zoom. Boutons − / + / <b>Ajuster</b> en bas à droite (Ajuster montre tout le diagramme).</li>
+<li><b>Glisser le fond</b> (ou le bouton du milieu de la souris) : déplacer la vue.</li></ul>`},
+
+{id:'types',t:'Types de diagrammes',h:`
+<p>La notation est celle du cours : <i>uml.slides.pierre-jehan.com</i>. La palette et la barre de liens changent selon le type du projet.</p>
+<table><tr><th>Type</th><th>Éléments</th><th>Liens</th></tr>
+<tr><td><b>Classes</b></td><td>Cadre, classe, abstraite, interface, note</td><td>Association, assoc. dirigée, héritage, implémentation, dépendance, agrégation, composition</td></tr>
+<tr><td><b>Cas d'utilisation</b></td><td>Cadre, système, cas, acteur, note</td><td>Association, héritage (généralisation), «include», «extends»</td></tr>
+<tr><td><b>Activité</b></td><td>Cadre, activité, couloirs, début, action, décision, barre fork/join, fin, fin de flux, note</td><td>Flux</td></tr>
+<tr><td><b>Composants</b></td><td>Cadre, composant, port, interface, note</td><td>Association, dépendance</td></tr>
+<tr><td><b>Déploiement</b></td><td>Cadre, nœud, composant, artefact, note</td><td>Association</td></tr>
+<tr><td><b>Séquence</b></td><td>Cadre, ligne de vie, acteur, entité, frontière, contrôle, activation, destruction, fragment, séparateur, note</td><td>Appel, asynchrone, retour, auto-appel, message trouvé, message perdu</td></tr></table>
+<p>Le <b>lien de note</b> (trait pointillé) relie une note à n'importe quel élément, dans tous les types.</p>
+<p>Détails : <a data-h="seq">séquence</a>, <a data-h="act">activité</a>, <a data-h="cls">classes et cas d'utilisation</a>.</p>`},
+
+{id:'edit',t:'Éléments et liens',h:`
+<h3>Éléments</h3>
+<ul>
+<li><b>Sélectionner</b> : un clic. Les propriétés apparaissent à droite.</li>
+<li><b>Renommer</b> : double-clic sur l'élément, ou champ « Nom » à droite.</li>
+<li><b>Déplacer</b> : glisser l'élément. Il se cale sur une grille de 10 px. Déplacer un cadre, un système, une activité ou des couloirs emmène les éléments qui sont entièrement dedans.</li>
+<li><b>Redimensionner</b> : poignée bleue en bas à droite de l'élément sélectionné (ou champs Largeur / Hauteur).</li>
+<li><b>Couleur</b> : pastilles dans les propriétés (pour les éléments qui en ont une).</li>
+<li><b>Dupliquer</b> / <b>Supprimer</b> : boutons dans les propriétés, ou Ctrl+D / Suppr.</li>
+<li><b>Cadres, systèmes, fragments, activités, couloirs</b> : ce sont des formes creuses. Attrapez-les par leur <b>bordure</b> ou leur onglet ; l'intérieur reste libre pour les éléments et le déplacement de la vue.</li>
+</ul>
+<h3>Liens</h3>
+<ol>
+<li>Cliquez un type de lien dans la barre du haut (il reste actif tant que vous ne revenez pas à <b>Sélection</b> ou n'appuyez pas sur Échap).</li>
+<li>Cliquez l'élément de <b>départ</b>, puis l'élément d'<b>arrivée</b>. La pointe (flèche, triangle, losange) se place sur le <b>2ᵉ élément cliqué</b>.</li>
+<li>Cliquez le lien pour lui donner un <b>libellé</b> (par exemple « oui », « [stock &gt; 0] ») et, pour les diagrammes qui le permettent, des <b>multiplicités</b>.</li>
+<li><b>Inverser le sens</b> : bouton dans les propriétés du lien.</li>
+</ol>
+<div class="tip">Plusieurs liens entre les deux mêmes éléments (par exemple un aller-retour) sont automatiquement écartés pour ne pas se superposer.</div>`},
+
+{id:'cls',t:'Classes et cas d\'utilisation',h:`
+<h3>Diagramme de classes</h3>
+<ul>
+<li>Saisissez les <b>attributs</b> et les <b>méthodes</b> dans les propriétés, <b>une par ligne</b> (par exemple <code>- id: int</code>, <code>+ getNom(): String</code>). Les classes s'agrandissent toutes seules pour afficher le texte.</li>
+<li><b>Abstraite</b> et <b>Interface</b> affichent leur stéréotype « Abstract » / « Interface ».</li>
+<li><b>Héritage</b> et <b>Implémentation</b> : cliquez la classe fille puis la classe mère (le triangle se place sur la mère). L'implémentation est en pointillé.</li>
+<li><b>Agrégation</b> et <b>Composition</b> : cliquez la partie puis le tout (le losange se place sur le tout).</li>
+<li>Les <b>multiplicités</b> (1, 0..*, *) se saisissent des deux côtés du lien.</li>
+</ul>
+<h3>Cas d'utilisation</h3>
+<ul>
+<li>Le <b>système</b> est le grand rectangle dont le nom s'écrit en haut à gauche. Placez les cas dedans.</li>
+<li>Les acteurs se relient aux cas par une <b>association</b>.</li>
+<li><b>«include»</b> et <b>«extends»</b> : cliquez le cas de départ puis le cas visé ; le libellé s'ajoute tout seul.</li>
+<li><b>Héritage</b> : généralisation entre deux acteurs ou deux cas.</li>
+</ul>`},
+
+{id:'act',t:'Diagramme d\'activité',h:`
+<ul>
+<li><b>Début</b> (disque noir), <b>Action</b>, <b>Décision</b> (losange), <b>Barre</b> (fork/join), <b>Fin</b> (fin d'activité) et <b>Fin de flux</b> (cercle barré).</li>
+<li><b>Flux</b> : reliez les éléments dans l'ordre. Mettez la condition de garde en libellé (« oui », « non », « [devis validé] »).</li>
+<li><b>Décision</b> : tapez le texte de la question dans son nom ; il s'affiche dans le losange.</li>
+<li><b>Barre fork/join</b> : verticale par défaut. Redimensionnez-la avec la poignée pour la rendre horizontale ou plus longue.</li>
+</ul>
+<h3>Couloirs</h3>
+<ul>
+<li>Posez l'élément <b>Couloirs</b> : par défaut 3 lignes (Fournisseur, Entreprise, Client), de haut en bas.</li>
+<li>Dans les propriétés : un <b>nom par ligne</b> pour ajouter ou retirer des couloirs, et l'<b>orientation</b> (lignes horizontales ou colonnes verticales).</li>
+<li>Agrandissez le cadre avec la poignée bleue, puis placez vos actions dans le bon couloir. Déplacer les couloirs emmène les éléments qui sont dedans.</li>
+</ul>
+<h3>Activité (cadre arrondi)</h3>
+<p>L'élément <b>Activité</b> est un grand rectangle arrondi avec un titre en haut à gauche, pour encadrer tout le diagramme.</p>`},
+
+{id:'seq',t:'Diagramme de séquence',h:`
+<h3>Lignes de vie</h3>
+<ul>
+<li><b>Ligne de vie</b>, <b>Acteur</b>, <b>Entité</b>, <b>Frontière</b> et <b>Contrôle</b> : écrivez le nom avec les deux-points habituels (<code>:Application</code>). Elles s'alignent automatiquement en haut.</li>
+<li>Pour allonger une ligne de vie, utilisez la poignée bleue ou le champ « Hauteur ».</li>
+</ul>
+<h3>Messages</h3>
+<ol>
+<li>Choisissez <b>Appel</b>, <b>Asynchrone</b> ou <b>Retour</b> dans la barre du haut.</li>
+<li>Cliquez la ligne de vie (ou la barre d'activation) de <b>départ</b>, puis celle d'<b>arrivée</b>. La <b>hauteur du 2ᵉ clic</b> place le message.</li>
+<li>Glissez ensuite le message vers le haut ou le bas pour l'ajuster, et écrivez son libellé à droite.</li>
+</ol>
+<ul>
+<li><b>Message trouvé</b> / <b>perdu</b> : un seul clic sur la ligne de vie, à la hauteur voulue.</li>
+<li>Quand un message tombe à la hauteur d'une barre d'activation ou d'un auto-appel, la flèche s'accroche au <b>bord de la barre</b> automatiquement.</li>
+</ul>
+<h3>Auto-appel</h3>
+<ul>
+<li>Choisissez <b>Auto-appel</b>, puis cliquez <b>une seule fois</b> sur la ligne de vie : cela crée un bloc (flèche qui revient + barre d'activation + barre imbriquée).</li>
+<li>Glissez le bloc pour le monter ou le descendre. Sélectionné, il affiche <b>4 poignées bleues</b> : haut et bas de chaque barre. Les champs de droite permettent des valeurs précises.</li>
+<li>Vous pouvez le cliquer comme départ ou arrivée d'un autre message.</li>
+</ul>
+<h3>Activations et destruction</h3>
+<ul>
+<li><b>Activation</b> : sélectionnez d'abord la ligne de vie, puis cliquez <b>Activation</b> dans la palette (ou glissez la barre sur la ligne de vie). Elle se centre et s'<b>accroche</b> : elle suit la ligne de vie quand vous la déplacez.</li>
+<li>Une barre posée sur une autre se décale pour former une barre <b>imbriquée</b>.</li>
+<li>Pour l'allonger : poignées bleues en haut et en bas, ou boutons « Haut +20 », « Bas +20 » dans les propriétés.</li>
+<li><b>Destruction</b> (X) : même principe, toujours centrée.</li>
+</ul>
+<h3>Fragments (alt, loop, opt…)</h3>
+<ul>
+<li>Posez un <b>Fragment</b> et saisissez l'opérateur (<code>alt</code>, <code>loop</code>…) et la condition dans les propriétés.</li>
+<li>Pour le trait pointillé « else » : sélectionnez le fragment puis cliquez <b>Séparateur</b> (barre du haut ou palette). Glissez-le à la bonne hauteur.</li>
+<li>Le <b>Cadre</b> sert à titrer tout le diagramme (par exemple « sd Ajout au panier »).</li>
+</ul>`},
+
+{id:'save',t:'Enregistrer ses projets',h:`
+<h3>Enregistrement automatique</h3>
+<p>Chaque modification est enregistrée en moins d'une seconde (message « Enregistré » en haut). <b>Ctrl+S</b> force l'enregistrement.</p>
+<h3>Où sont les projets ?</h3>
+<ul>
+<li><b>Dans le navigateur</b> (par défaut) : pratique, mais lié à ce navigateur et à l'adresse de la page. Si vous videz les données du navigateur ou changez d'adresse, ils ne suivent pas.</li>
+<li><b>Dans un dossier</b> : cliquez <b>Choisir un dossier…</b> (colonne de gauche, section Stockage). Chaque projet devient un fichier <code>nom.uml.json</code> dans ce dossier. Si le dossier est vide, vos projets actuels y sont copiés ; sinon ceux du dossier sont chargés.</li>
+</ul>
+<div class="tip">Le choix d'un dossier fonctionne sur <b>Chrome</b> et <b>Edge</b> uniquement. Après avoir fermé le navigateur, un bouton <b>Reconnecter le dossier</b> peut apparaître : cliquez-le pour autoriser à nouveau l'accès.</div>
+<h3>Gérer les projets</h3>
+<ul>
+<li>Cliquez un projet dans la liste pour l'ouvrir. Le <b>✕</b> à droite le supprime (le fichier du dossier aussi, après confirmation).</li>
+<li>Renommer le projet renomme son fichier.</li>
+<li><b>Sauvegarder le projet (.json)</b> et <b>Importer un projet (.json)</b> (menu ⋯ Plus) permettent de faire une copie ou de déplacer un projet vers un autre ordinateur.</li>
+</ul>`},
+
+{id:'export',t:'Exporter',h:`
+<table><tr><th>Format</th><th>Usage</th></tr>
+<tr><td><b>PDF</b></td><td>Page A4 (paysage ou portrait selon le diagramme) avec le nom du projet et la date. Bouton « Télécharger en PDF ».</td></tr>
+<tr><td><b>PNG</b></td><td>Image sur fond blanc, haute définition.</td></tr>
+<tr><td><b>SVG</b></td><td>Image vectorielle, modifiable dans un logiciel de dessin.</td></tr>
+<tr><td><b>draw.io</b></td><td>Fichier <code>.drawio</code> avec des formes modifiables. Dans draw.io : Fichier &gt; Ouvrir depuis &gt; Cet appareil, ou glissez le fichier dans la fenêtre. L'aspect de quelques formes peut légèrement différer.</td></tr>
+<tr><td><b>JSON</b></td><td>Sauvegarde du projet pour le réimporter dans UML Studio.</td></tr></table>
+<p>L'export contient tout le diagramme, quel que soit le zoom ou la partie visible. Les poignées et la sélection n'apparaissent pas dans les exports.</p>`},
+
+{id:'keys',t:'Raccourcis clavier',h:`
+<table><tr><th>Touche</th><th>Action</th></tr>
+<tr><td><kbd>F1</kbd></td><td>Ouvrir l'aide</td></tr>
+<tr><td><kbd>Suppr</kbd> ou <kbd>Retour arrière</kbd></td><td>Supprimer la sélection</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Annuler (jusqu'à 100 actions)</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> ou <kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>Z</kbd></td><td>Rétablir</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Dupliquer l'élément sélectionné</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Enregistrer maintenant</td></tr>
+<tr><td><kbd>Échap</kbd></td><td>Quitter le mode lien et désélectionner</td></tr>
+<tr><td>Double-clic</td><td>Renommer un élément</td></tr>
+<tr><td>Molette</td><td>Zoom</td></tr></table>`},
+
+{id:'faq',t:'Problèmes fréquents',h:`
+<table><tr><th>Problème</th><th>Solution</th></tr>
+<tr><td>Je ne vois pas une nouveauté</td><td>Vous ouvrez peut-être une ancienne copie du fichier. Comparez le numéro de version à côté du logo avec celui annoncé, et rechargez la page (F5). Le site en ligne est toujours à jour.</td></tr>
+<tr><td>Je n'arrive pas à reprendre un cadre / fragment</td><td>Cliquez sur sa <b>bordure</b> ou sur son onglet, pas à l'intérieur. Utilisez <b>Ajuster</b> si son bord est hors de l'écran.</td></tr>
+<tr><td>Les flèches se superposent</td><td>Elles sont écartées automatiquement quand elles relient les mêmes éléments. Sinon, déplacez un des éléments.</td></tr>
+<tr><td>Une activation ne se colle pas à la ligne de vie</td><td>Sélectionnez la ligne de vie avant de cliquer <b>Activation</b>, ou lâchez la barre sur la ligne de vie.</td></tr>
+<tr><td>Le bouton « Choisir un dossier » n'existe pas</td><td>Utilisez Chrome ou Edge. Sinon, passez par « Sauvegarder le projet (.json) ».</td></tr>
+<tr><td>Mes projets ont disparu</td><td>Les projets du navigateur sont liés à l'adresse de la page et à ce navigateur. Rouvrez la même adresse, ou rechargez le dossier d'enregistrement. Pensez à faire des sauvegardes .json.</td></tr>
+<tr><td>Un message n'est pas à la bonne hauteur</td><td>Glissez-le verticalement, ou sélectionnez-le puis déplacez-le avec la souris.</td></tr>
+<tr><td>Message « Enregistrement impossible »</td><td>Le dossier n'est plus accessible : cliquez « Reconnecter le dossier » ou choisissez-en un autre.</td></tr></table>`}
+];
+function showHelp(id){
+  const s=HELP.find(x=>x.id===id)||HELP[0];
+  $('#helpNav').innerHTML='<h4>Documentation</h4>'+HELP.map(x=>`<button data-h="${x.id}" class="${x.id===s.id?'on':''}">${x.t}</button>`).join('');
+  $('#helpBody').innerHTML=`<h2>${s.t}</h2>`+s.h;$('#helpBody').scrollTop=0;
+}
+function openHelp(id){const d=$('#help');if(!d.open)d.showModal();showHelp(id||'start')}
+$('#helpBtn').onclick=()=>openHelp();
+$('#helpClose').onclick=()=>$('#help').close();
+$('#help').addEventListener('click',e=>{
+  const a=e.target.closest('[data-h]');if(a)return showHelp(a.dataset.h);
+  if(e.target===$('#help'))$('#help').close();
+});
+document.addEventListener('keydown',e=>{if(e.key==='F1'){e.preventDefault();openHelp()}});
 
 /* ---------- Démarrage ---------- */
 (async function init(){
