@@ -10,7 +10,6 @@
 - Déploiement
 - Séquence (lignes de vie, activations, auto-appels, fragments)
 
-La notation suit celle du cours : https://uml.slides.pierre-jehan.com/
 
 ## Fonctionnalités
 - Enregistrement automatique des projets dans le navigateur, ou dans un dossier de votre choix (Chrome / Edge)
