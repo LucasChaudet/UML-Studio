@@ -81,6 +81,12 @@ dialog::backdrop{background:rgba(20,30,50,.35)}
 .kinds button span{color:var(--muted);font-size:12px}
 .proj small{color:var(--muted);font-weight:400;font-size:11px}
 select#kind{width:auto}
+#txtDlg{width:min(780px,94vw)}
+.seg{display:flex;gap:6px;margin-bottom:8px}
+.seg button.on{background:var(--accent-soft);border-color:var(--accent);color:#1f3fa8;font-weight:600}
+#txtNotes{margin:6px 0;padding-left:18px;color:var(--muted);font-size:12px}
+#txtCode{white-space:pre;overflow:auto;font-size:12px}
+#txtHelp a{color:var(--accent)}
 #help{width:min(980px,94vw);height:min(720px,88vh);padding:0;overflow:hidden}
 #help[open]{display:grid;grid-template-columns:210px 1fr;grid-template-rows:1fr}
 #helpNav{background:#f6f8fb;border-right:1px solid var(--line);padding:14px 10px;overflow:auto;display:flex;flex-direction:column;gap:2px}
@@ -104,7 +110,7 @@ select#kind{width:auto}
 </head>
 <body>
 <header>
-  <div class="logo"><i></i>UML Studio <small style="color:var(--muted);font-weight:400" title="Numéro de version de la page">v1.13</small></div>
+  <div class="logo"><i></i>UML Studio <small style="color:var(--muted);font-weight:400" title="Numéro de version de la page">v1.14</small></div>
   <input id="pname" type="text" placeholder="Nom du projet" aria-label="Nom du projet">
   <select id="kind" aria-label="Type de diagramme"></select>
   <button class="ghost" id="undo" title="Annuler (Ctrl+Z)">↶ Annuler</button>
@@ -119,6 +125,8 @@ select#kind{width:auto}
       <button id="exPng">Exporter en image PNG</button>
       <button id="exSvg">Exporter en SVG</button>
       <button id="exDio">Exporter pour draw.io (.drawio)</button>
+      <button id="exMmd">Exporter en Mermaid (texte)</button>
+      <button id="exPuml">Exporter en PlantUML (texte)</button>
       <button id="exJson">Sauvegarder le projet (.json)</button>
       <button id="imJson">Importer un projet (.json)</button>
     </div>
@@ -158,6 +166,14 @@ select#kind{width:auto}
   <h3 style="margin:0">Nouveau diagramme</h3>
   <div class="kinds" id="kinds"></div>
   <div style="text-align:right"><button id="dlgCancel">Annuler</button></div>
+</dialog>
+<dialog id="txtDlg">
+  <h3 style="margin:0 0 10px">Exporter en texte</h3>
+  <div class="seg"><button data-fmt="mermaid">Mermaid</button><button data-fmt="puml">PlantUML</button></div>
+  <ul id="txtNotes"></ul>
+  <textarea id="txtCode" readonly rows="16" spellcheck="false"></textarea>
+  <p id="txtHelp" style="margin:8px 0;color:var(--muted);font-size:12px"></p>
+  <div style="display:flex;gap:8px"><button id="txtCopy" class="primary">Copier</button><button id="txtDl">Télécharger</button><button id="txtClose" style="margin-left:auto">Fermer</button></div>
 </dialog>
 <dialog id="help">
   <nav id="helpNav" aria-label="Sections de l'aide"></nav>
@@ -1097,6 +1113,267 @@ $('#file').onchange=async e=>{
 $('#menuBtn').onclick=e=>{e.stopPropagation();$('#menu').classList.toggle('open')};
 document.addEventListener('click',()=>$('#menu').classList.remove('open'));
 
+/* ---------- Export texte : Mermaid et PlantUML ---------- */
+const qp=s=>String(s||'').replace(/"/g,"'").replace(/\n/g,'\\n');          /* texte PlantUML entre guillemets */
+const qm=s=>String(s||'').replace(/"/g,'#quot;').replace(/\n/g,'<br>');    /* texte Mermaid entre guillemets */
+const laneBox=(sw,i)=>{const k=Math.max(lines(sw.name).length,1);
+  return sw.orient==='row'?{x:sw.x,y:sw.y+sw.h/k*i,w:sw.w,h:sw.h/k}:{x:sw.x+sw.w/k*i,y:sw.y,w:sw.w/k,h:sw.h}};
+const inBox=(b,n)=>{const d=dims(n),cx=n.x+d.w/2,cy=n.y+d.h/2;return cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h};
+const NO_GROUP=['frame','fragment','divider','swimlane','system','package','activity','port'];
+/* Regroupements : couloirs, systèmes et paquets contiennent les éléments situés dedans */
+function textGroups(p){
+  const gs=[];let k=0;
+  p.nodes.forEach(n=>{
+    if(n.type==='swimlane')lines(n.name).forEach((t,i)=>gs.push({id:'G'+(++k),title:t,box:laneBox(n,i),kind:'lane',nodes:[]}));
+    else if(n.type==='system'||n.type==='package')gs.push({id:'G'+(++k),title:n.name||'',box:{x:n.x,y:n.y,w:n.w,h:n.h},kind:n.type,nodes:[]});
+  });
+  const top=[];
+  p.nodes.forEach(n=>{
+    if(NO_GROUP.includes(n.type))return;
+    const g=gs.filter(g=>inBox(g.box,n)).sort((a,b)=>a.box.w*a.box.h-b.box.w*b.box.h)[0];
+    (g?g.nodes:top).push(n);
+  });
+  return{gs,top};
+}
+const PU_ARROW={assoc:'--',directed:'-->',inherit:'--|>',realize:'..|>',depend:'..>',aggr:'--o',compo:'--*',include:'.>',extend:'.>',flow:'-->',noteLink:'..'};
+const edgeLabel=e=>{const L=LINKS[e.type]||{};return String(e.label||L.auto||'').replace(/«/g,'<<').replace(/»/g,'>>')};
+
+/* ----- Séquence (commun) ----- */
+function seqText(p,f,out,notes){
+  const L=p.nodes.filter(isSeq).sort((a,b)=>a.x-b.x),ids={};L.forEach((n,i)=>ids[n.id]='L'+(i+1));
+  const nm=n=>String(n.name||'').replace(/[\n;#"]/g,' ').trim()||'Objet';
+  const pad=f==='mmd'?'    ':'';
+  L.forEach(n=>{
+    if(f==='puml'){const kw={seqactor:'actor',lentity:'entity',lboundary:'boundary',lcontrol:'control'}[n.type]||'participant';out.push(`${kw} "${nm(n)}" as ${ids[n.id]}`)}
+    else out.push(`${pad}${n.type==='seqactor'?'actor':'participant'} ${ids[n.id]} as ${nm(n)}`);
+  });
+  if(f==='mmd'&&L.some(n=>['lentity','lboundary','lcontrol'].includes(n.type)))notes.push('Mermaid n\'a pas de symbole pour entité / frontière / contrôle : ils sont exportés comme de simples participants.');
+  const items=[];
+  p.edges.forEach(e=>{if(ids[e.from]&&ids[e.to])items.push({y:e.y??0,e})});
+  p.nodes.filter(n=>n.type==='note').forEach(n=>items.push({y:n.y,note:n}));
+  items.sort((a,b)=>a.y-b.y);
+  const before=items.map(()=>[]),after=items.map(()=>[]);
+  const KW=['alt','loop','opt','par','break','critical'];
+  p.nodes.filter(n=>n.type==='fragment').sort((a,b)=>b.h-a.h).forEach(fr=>{
+    const idx=items.map((_,i)=>i).filter(i=>items[i].y>=fr.y&&items[i].y<=fr.y+fr.h);
+    if(!idx.length){notes.push(`Le fragment « ${fr.name} » ne contient aucun message : ignoré.`);return}
+    const op=String(fr.name||'').trim().toLowerCase();
+    before[idx[0]].push({t:'open',kw:KW.includes(op)?op:'opt',label:KW.includes(op)?'':fr.name,cond:fr.cond||''});
+    p.nodes.filter(d=>d.type==='divider'&&d.y>fr.y&&d.y<fr.y+fr.h).forEach(d=>{
+      const j=idx.find(i=>items[i].y>d.y);if(j!==undefined&&j>idx[0])before[j].push({t:'else'});
+    });
+    if(fr.sep>0){const j=idx.find(i=>items[i].y>fr.y+fr.sep);if(j!==undefined&&j>idx[0])before[j].push({t:'else'})}
+    after[idx.at(-1)].unshift({t:'end'});
+  });
+  p.nodes.filter(n=>n.type==='activation'&&ids[n.att]).forEach(b=>{
+    const inv=items.map((_,i)=>i).filter(i=>items[i].e&&(items[i].e.from===b.att||items[i].e.to===b.att));
+    const s=inv.find(i=>items[i].y>=b.y-6),e2=[...inv].reverse().find(i=>items[i].y<=b.y+b.h+6);
+    if(s!==undefined&&e2!==undefined&&s<=e2){after[s].push({t:'act',id:ids[b.att]});after[e2].push({t:'deact',id:ids[b.att]})}
+  });
+  items.forEach((it,i)=>{if(it.e&&it.e.type==='self'){after[i].push({t:'act',id:ids[it.e.from]},{t:'deact',id:ids[it.e.from]})}});
+  const stack=[];
+  const emit=x=>{
+    if(x.t==='open'){
+      stack.push(x.kw);
+      const txt=[x.label,x.cond].filter(Boolean).join(' ');
+      out.push(f==='puml'?`${x.kw}${txt?' '+txt:''}`:`${pad}${x.kw}${txt?' '+txt:''}`);
+    }else if(x.t==='else')out.push(`${pad}${f==='mmd'&&stack.at(-1)==='par'?'and':'else'}`);
+    else if(x.t==='end'){stack.pop();out.push(`${pad}end`)}
+    else if(x.t==='act')out.push(`${pad}activate ${x.id}`);
+    else if(x.t==='deact')out.push(`${pad}deactivate ${x.id}`);
+  };
+  const title=p.nodes.find(n=>n.type==='frame');
+  if(f==='puml'&&title&&title.name)out.push(`title ${qp(title.name)}`);
+  items.forEach((it,i)=>{
+    before[i].forEach(emit);
+    if(it.note){const t=String(it.note.name||'').replace(/\n/g,f==='puml'?'\\n':'<br>');out.push(f==='puml'?`note across : ${t}`:`${pad}Note over ${ids[L[0].id]}${L.length>1?','+ids[L.at(-1).id]:''}: ${t}`)}
+    else{
+      const e=it.e,a=ids[e.from],b=ids[e.to],t=String(e.label||'').replace(/\n/g,' ');
+      if(f==='puml'){
+        const ar={sync:'->',self:'->',async:'->>',return:'-->'}[e.type]||'->';
+        if(e.type==='found')out.push(`[-> ${a}${t?' : '+t:''}`);
+        else if(e.type==='lost')out.push(`${a} ->]${t?' : '+t:''}`);
+        else out.push(`${a} ${ar} ${b}${t?' : '+t:''}`);
+      }else{
+        const ar={sync:'->>',self:'->>',async:'-)',return:'-->>'}[e.type]||'->>';
+        if(e.type==='found'||e.type==='lost'){out.push(`${pad}Note over ${a}: ${e.type==='found'?'message trouvé':'message perdu'}${t?' : '+t:''}`);
+          if(!notes.some(n=>n.includes('trouvé')))notes.push('Mermaid n\'a pas de message trouvé / perdu : ils sont exportés sous forme de note.')}
+        else out.push(`${pad}${a}${ar}${b}: ${t||' '}`);
+      }
+    }
+    after[i].forEach(emit);
+  });
+  p.nodes.filter(n=>n.type==='destroy'&&ids[n.att]).forEach(n=>out.push(`${pad}destroy ${ids[n.att]}`));
+}
+
+/* ----- PlantUML ----- */
+function toPlantUML(p){
+  const out=['@startuml'],notes=[],k=p.kind||'class',ids={};
+  p.nodes.forEach((n,i)=>ids[n.id]='N'+(i+1));
+  if(k==='sequence'){seqText(p,'puml',out,notes);out.push('@enduml');return{code:out.join('\n'),notes}}
+  const {gs,top}=textGroups(p);
+  const mem=s=>lines(s).map(l=>'  '+l.trim());
+  const declared=new Set();
+  const decl=n=>{
+    const id=ids[n.id],nm=qp(n.name||''),t=n.type;let r=null;
+    if(k==='activity'){
+      if(t==='start'||t==='end')return null;
+      if(t==='action'||t==='state')r=`state "${nm}" as ${id}`;
+      else if(t==='decision')r=`state ${id} <<choice>>`+(n.name?`\nnote right of ${id} : ${nm}`:'');
+      else if(t==='fork')r=`state ${id} <<fork>>`;
+      else if(t==='flowfinal')r=`state ${id} <<end>>`;
+      else if(t==='note')r=`note "${nm}" as ${id}`;
+    }else{
+      if(t==='class')r=`class "${nm}" as ${id} {\n${[...mem(n.attrs),...mem(n.methods)].join('\n')}\n}`;
+      else if(t==='abstract')r=`abstract class "${nm}" as ${id} {\n${[...mem(n.attrs),...mem(n.methods)].join('\n')}\n}`;
+      else if(t==='interface')r=`interface "${nm}" as ${id} {\n${[...mem(n.attrs),...mem(n.methods)].join('\n')}\n}`;
+      else if(t==='actor')r=`actor "${nm}" as ${id}`;
+      else if(t==='usecase')r=`usecase "${nm}" as ${id}`;
+      else if(t==='component')r=`component "${nm}" as ${id}`;
+      else if(t==='iface')r=`interface "${nm}" as ${id}`;
+      else if(t==='dnode')r=`node "${nm}" as ${id}`;
+      else if(t==='artifact')r=`artifact "${nm}" as ${id}`;
+      else if(t==='database')r=`database "${nm}" as ${id}`;
+      else if(t==='note')r=`note "${nm}" as ${id}`;
+    }
+    if(r)declared.add(n.id);
+    return r;
+  };
+  if(k==='usecase')out.push('left to right direction');
+  top.forEach(n=>{const r=decl(n);if(r)out.push(r)});
+  gs.forEach(g=>{
+    const body=g.nodes.map(decl).filter(Boolean);
+    if(!body.length&&g.kind!=='lane')return;
+    out.push(`${k==='activity'?'state':g.kind==='package'?'package':'rectangle'} "${qp(g.title)}" as ${g.id} {`,...body,'}');
+  });
+  const ref=(n,isTarget)=>{
+    if(k==='activity'&&(n.type==='start'||n.type==='end'))return '[*]';
+    return declared.has(n.id)?ids[n.id]:null;
+  };
+  p.edges.forEach(e=>{
+    const a=p.nodes.find(n=>n.id===e.from),b=p.nodes.find(n=>n.id===e.to);if(!a||!b)return;
+    const ra=ref(a),rb=ref(b);if(!ra||!rb){notes.push(`Un lien vers « ${(!ra?a:b).type} » n'a pas pu être converti.`);return}
+    const ar=k==='activity'?(e.type==='noteLink'?'..':'-->'):(PU_ARROW[e.type]||'--');
+    const fm=k==='class'&&e.fromMult?` "${qp(e.fromMult)}"`:'',tm=k==='class'&&e.toMult?` "${qp(e.toMult)}"`:'',lb=edgeLabel(e);
+    out.push(`${ra}${fm} ${ar}${tm} ${rb}${lb?' : '+qp(lb):''}`);
+  });
+  if(k==='activity'){
+    if(p.nodes.some(n=>n.type==='fork'))notes.push('Le diagramme d\'activité est exporté au format « états » de PlantUML (le plus fidèle pour un graphe) ; les couloirs deviennent des états composites.');
+    else notes.push('Le diagramme d\'activité est exporté au format « états » de PlantUML ; les couloirs deviennent des états composites.');
+  }
+  if(p.nodes.some(n=>n.type==='port'))notes.push('Les ports ne sont pas exportés.');
+  notes.push('Les positions, tailles et couleurs ne sont pas conservées : PlantUML place les éléments automatiquement.');
+  out.push('@enduml');
+  return{code:out.join('\n'),notes};
+}
+
+/* ----- Mermaid ----- */
+function toMermaid(p){
+  const k=p.kind||'class',notes=[],out=[],ids={};
+  p.nodes.forEach((n,i)=>ids[n.id]='N'+(i+1));
+  const hdr='Les positions, tailles et couleurs ne sont pas conservées : Mermaid place les éléments automatiquement.';
+  if(k==='sequence'){out.push('sequenceDiagram');seqText(p,'mmd',out,notes);notes.push(hdr);return{code:out.join('\n'),notes}}
+  if(k==='class'){
+    out.push('classDiagram');
+    const names={},used=new Set();
+    const cls=p.nodes.filter(n=>['class','abstract','interface'].includes(n.type));
+    cls.forEach((n,i)=>{let b=String(n.name||'').replace(/[^A-Za-z0-9_]/g,'_')||'C'+(i+1),c=b,j=2;while(used.has(c))c=b+(j++);used.add(c);names[n.id]=c});
+    cls.forEach(n=>{
+      out.push(`    class ${names[n.id]} {`);
+      if(n.type==='interface')out.push('        <<interface>>');
+      if(n.type==='abstract')out.push('        <<abstract>>');
+      [...lines(n.attrs),...lines(n.methods)].forEach(l=>out.push('        '+l.trim().replace(/</g,'~').replace(/>/g,'~')));
+      out.push('    }');
+    });
+    const MR={assoc:'--',directed:'-->',inherit:'--|>',realize:'..|>',depend:'..>'};
+    const linked=new Set();
+    p.edges.forEach(e=>{
+      const a=p.nodes.find(n=>n.id===e.from),b=p.nodes.find(n=>n.id===e.to);if(!a||!b)return;
+      if(e.type==='noteLink'){const nn=a.type==='note'?a:b,t=a.type==='note'?b:a;
+        if(nn.type==='note'&&names[t.id]){out.push(`    note for ${names[t.id]} "${qm(nn.name)}"`);linked.add(nn.id)}return}
+      if(!names[a.id]||!names[b.id])return;
+      const lb=e.label?` : ${String(e.label).replace(/\n/g,' ')}`:'';
+      const q=m=>m?` "${qm(m)}"`:'';
+      if(e.type==='aggr'||e.type==='compo')out.push(`    ${names[b.id]}${q(e.toMult)} ${e.type==='aggr'?'o--':'*--'}${q(e.fromMult)} ${names[a.id]}${lb}`);
+      else out.push(`    ${names[a.id]}${q(e.fromMult)} ${MR[e.type]||'--'}${q(e.toMult)} ${names[b.id]}${lb}`);
+    });
+    p.nodes.filter(n=>n.type==='note'&&!linked.has(n.id)).forEach(n=>out.push(`    note "${qm(n.name)}"`));
+    notes.push(hdr);return{code:out.join('\n'),notes};
+  }
+  /* activité, cas d'utilisation, composants, déploiement : organigramme (flowchart) */
+  out.push(`flowchart ${k==='activity'?'TB':'LR'}`);
+  if(k!=='activity')notes.push('Mermaid ne gère pas ce type de diagramme : export approximatif sous forme d\'organigramme (flowchart).');
+  const {gs,top}=textGroups(p),styles=[];
+  const decl=n=>{
+    const id=ids[n.id],t=qm(n.name||''),ty=n.type;
+    switch(ty){
+      case'start':styles.push(`    style ${id} fill:#000,stroke:#000`);return`${id}((" "))`;
+      case'end':return`${id}((("  ")))`;
+      case'flowfinal':return`${id}(("✕"))`;
+      case'action':case'state':return`${id}("${t}")`;
+      case'decision':return`${id}{"${t||' '}"}`;
+      case'fork':styles.push(`    style ${id} fill:#000,stroke:#000`);return`${id}[" "]`;
+      case'note':return`${id}>"${t}"]`;
+      case'actor':return`${id}["👤 ${t}"]`;
+      case'usecase':return`${id}(["${t}"])`;
+      case'component':return`${id}["«${qm(n.stereotype||'component')}»<br>${t}"]`;
+      case'iface':return`${id}(("${t}"))`;
+      case'dnode':return`${id}[["${t}"]]`;
+      case'artifact':return`${id}["📄 ${t}"]`;
+      case'database':return`${id}[("${t}")]`;
+    }
+    return null;
+  };
+  const shown=new Set();
+  const line=(n,ind)=>{const r=decl(n);if(r){shown.add(n.id);out.push(ind+r)}};
+  top.forEach(n=>line(n,'    '));
+  gs.forEach(g=>{
+    out.push(`    subgraph ${g.id}["${qm(g.title)}"]`);
+    g.nodes.forEach(n=>line(n,'        '));
+    out.push('    end');
+  });
+  const MA={assoc:'---',directed:'-->',flow:'-->',depend:'-.->',include:'-.->',extend:'-.->',realize:'-.->',inherit:'-->',noteLink:'-.-'};
+  p.edges.forEach(e=>{
+    if(!shown.has(e.from)||!shown.has(e.to))return;
+    let lb=edgeLabel(e).replace(/<<|>>/g,m=>m==='<<'?'«':'»');if(!lb&&e.type==='inherit')lb='hérite';
+    out.push(`    ${ids[e.from]} ${MA[e.type]||'-->'}${lb?`|"${qm(lb)}"|`:''} ${ids[e.to]}`);
+  });
+  out.push(...styles);
+  if(k==='activity'&&p.nodes.some(n=>n.type==='swimlane'))notes.push('Les couloirs deviennent des sous-graphes (subgraph).');
+  notes.push(hdr);
+  return{code:out.join('\n'),notes};
+}
+
+/* ----- Fenêtre d'export texte ----- */
+let txtFmt='mermaid';
+function renderText(){
+  const p=cur();let r;
+  try{r=txtFmt==='mermaid'?toMermaid(p):toPlantUML(p)}catch(err){console.error(err);r={code:'',notes:['Conversion impossible : '+err.message]}}
+  $('#txtCode').value=r.code;
+  $('#txtNotes').innerHTML=r.notes.map(n=>`<li>${esc(n)}</li>`).join('');
+  document.querySelectorAll('#txtDlg [data-fmt]').forEach(b=>b.classList.toggle('on',b.dataset.fmt===txtFmt));
+  $('#txtHelp').innerHTML=txtFmt==='mermaid'
+    ?'Collez le texte sur <a href="https://mermaid.live" target="_blank" rel="noopener">mermaid.live</a> ou dans un bloc <code>```mermaid</code> (GitHub, Notion, Obsidian…).'
+    :'Collez le texte sur <a href="https://www.plantuml.com/plantuml" target="_blank" rel="noopener">plantuml.com/plantuml</a> ou dans l\'extension PlantUML de votre éditeur.';
+}
+function openText(fmt){
+  if(!cur().nodes.length)return toast('Le diagramme est vide');
+  txtFmt=fmt;if(!$('#txtDlg').open)$('#txtDlg').showModal();renderText();
+}
+$('#exMmd').onclick=()=>openText('mermaid');
+$('#exPuml').onclick=()=>openText('puml');
+$('#txtDlg').addEventListener('click',e=>{
+  const b=e.target.closest('[data-fmt]');if(b){txtFmt=b.dataset.fmt;renderText()}
+  if(e.target===$('#txtDlg'))$('#txtDlg').close();
+});
+$('#txtClose').onclick=()=>$('#txtDlg').close();
+$('#txtCopy').onclick=async()=>{
+  const t=$('#txtCode').value;
+  try{await navigator.clipboard.writeText(t)}catch{$('#txtCode').select();document.execCommand('copy')}
+  toast('Texte copié');
+};
+$('#txtDl').onclick=()=>dl(new Blob([$('#txtCode').value],{type:'text/plain;charset=utf-8'}),fname(txtFmt==='mermaid'?'mmd':'puml'));
+
 /* ---------- Aide / documentation ---------- */
 const HELP=[
 {id:'start',t:'Démarrer',h:`
@@ -1237,6 +1514,8 @@ const HELP=[
 <tr><td><b>PNG</b></td><td>Image sur fond blanc, haute définition.</td></tr>
 <tr><td><b>SVG</b></td><td>Image vectorielle, modifiable dans un logiciel de dessin.</td></tr>
 <tr><td><b>draw.io</b></td><td>Fichier <code>.drawio</code> avec des formes modifiables. Dans draw.io : Fichier &gt; Ouvrir depuis &gt; Cet appareil, ou glissez le fichier dans la fenêtre. L'aspect de quelques formes peut légèrement différer.</td></tr>
+<tr><td><b>Mermaid</b></td><td>Texte à coller dans mermaid.live, GitHub, Notion, Obsidian… Bien adapté aux diagrammes de <b>classes</b>, de <b>séquence</b> et d'<b>activité</b> ; approximatif pour les autres. Menu ⋯ Plus &gt; Exporter en Mermaid.</td></tr>
+<tr><td><b>PlantUML</b></td><td>Texte à coller dans plantuml.com ou l'extension PlantUML de votre éditeur. Gère les <b>six</b> types de diagrammes. Menu ⋯ Plus &gt; Exporter en PlantUML.</td></tr>
 <tr><td><b>JSON</b></td><td>Sauvegarde du projet pour le réimporter dans UML Studio.</td></tr></table>
 <p>L'export contient tout le diagramme, quel que soit le zoom ou la partie visible. Les poignées et la sélection n'apparaissent pas dans les exports.</p>`},
 
