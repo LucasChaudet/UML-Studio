@@ -110,7 +110,7 @@ select#kind{width:auto}
 </head>
 <body>
 <header>
-  <div class="logo"><i></i>UML Studio <small style="color:var(--muted);font-weight:400" title="Numéro de version de la page">v1.14</small></div>
+  <div class="logo"><i></i>UML Studio <small style="color:var(--muted);font-weight:400" title="Numéro de version de la page">v1.16</small></div>
   <input id="pname" type="text" placeholder="Nom du projet" aria-label="Nom du projet">
   <select id="kind" aria-label="Type de diagramme"></select>
   <button class="ghost" id="undo" title="Annuler (Ctrl+Z)">↶ Annuler</button>
@@ -266,6 +266,7 @@ const LINKS={
   self:{label:'Auto-appel',end:'arrowF',k:'sequence'},
   found:{label:'Message trouvé',end:'arrowF',k:'sequence'},
   lost:{label:'Message perdu',end:'arrow',k:'sequence'},
+  ifc:{label:'Interface (○–)',end:null,ifc:1,k:'component'},
   noteLink:{label:'Lien de note',end:null,dash:true,k:'class usecase activity component deployment sequence'}
 };
 const COLORS=['','#fff4d6','#dff5e6','#e1ecff','#fde3e3','#eee5ff'];
@@ -438,7 +439,7 @@ function nodeSvg(n){
       s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="transparent"/><path d="M${x+2} ${y+2}L${x+w-2} ${y+h-2}M${x+w-2} ${y+2}L${x+2} ${y+h-2}" stroke="${S}" stroke-width="2.5" stroke-linecap="round"/>`;
       break;
     case'divider':
-      s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="transparent"/><line x1="${x}" x2="${x+w}" y1="${y+h/2}" y2="${y+h/2}" stroke="${S}" stroke-width="2.5" stroke-dasharray="8 5"/>`;
+      s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="transparent"/><line x1="${x}" x2="${x+w}" y1="${y+h/2}" y2="${y+h/2}" stroke="${S}" stroke-width="2.5" stroke-dasharray="8 5"/>`+(n.name?txt(x+12,y+h/2+17,'['+n.name+']',{size:12}):'');
       break;
     case'frame':case'fragment':{
       const lw=tw(n.name||'',true)+24;
@@ -467,9 +468,14 @@ function edgeSvg(e,ui,sel){
   let s=`<g data-id="${e.id}" data-kind="edge">`;
   if(ui)s+=ln(14,'transparent');
   if(sel)s+=ln(9,'#3b6df0','stroke-opacity=".25"');
-  s+=ln(1.5,S,(L.dash?'stroke-dasharray="7 5" ':'')+(L.end?`marker-end="url(#m-${L.end})"`:''));
+  const isI=!!L.ifc&&len>40;
+  if(isI){
+    /* interface fournie (boule, côté source) / requise (demi-cercle, côté cible), au milieu du lien */
+    const c={x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2},P=(k,m)=>(c.x+ux*k+px*m).toFixed(1)+' '+(c.y+uy*k+py*m).toFixed(1);
+    s+=`<path d="M${p1.x} ${p1.y}L${P(-11,0)}M${P(11,0)}L${p2.x} ${p2.y}" stroke="${S}" stroke-width="1.5" fill="none"/><circle cx="${(c.x-ux*4).toFixed(1)}" cy="${(c.y-uy*4).toFixed(1)}" r="7" fill="#fff" stroke="${S}" stroke-width="1.5"/><path d="M${P(0,-11)}A11 11 0 0 1 ${P(0,11)}" stroke="${S}" stroke-width="1.5" fill="none"/>`;
+  }else s+=ln(1.5,S,(L.dash?'stroke-dasharray="7 5" ':'')+(L.end?`marker-end="url(#m-${L.end})"`:''));
   const label=e.label||L.auto||'';
-  if(label)s+=txt((p1.x+p2.x)/2+px*10,(p1.y+p2.y)/2+py*10+4,label,{anchor:'middle',size:12,halo:1});
+  if(label){const lo=isI?26:10;s+=txt((p1.x+p2.x)/2+px*lo,(p1.y+p2.y)/2+py*lo+4,label,{anchor:'middle',size:12,halo:1})}
   if(e.fromMult)s+=txt(p1.x+ux*18+px*12,p1.y+uy*18+py*12+4,e.fromMult,{anchor:'middle',size:12,halo:1});
   if(e.toMult){const o=L.end?30:18;s+=txt(p2.x-ux*o+px*12,p2.y-uy*o+py*12+4,e.toMult,{anchor:'middle',size:12,halo:1})}
   return s+'</g>';
@@ -644,6 +650,7 @@ function setTool(t){
   if(t==='select')h.style.display='none';
   else if(t==='found'||t==='lost'||t==='self'){h.style.display='block';h.textContent=LINKS[t].label+' : cliquez la ligne de vie concernée, à la hauteur voulue · Échap pour quitter'}
   else if(SEQ_TOOLS.includes(t)){h.style.display='block';h.textContent=LINKS[t].label+' : cliquez la ligne de vie source puis la cible (la hauteur du 2ᵉ clic place le message ; on peut le glisser ensuite) · Échap pour quitter'}
+  else if(t==='ifc'){h.style.display='block';h.textContent='Interface : cliquez d’abord le composant qui FOURNIT l’interface (la boule), puis celui qui l’UTILISE (le demi-cercle). Nommez-la dans « Libellé » · Échap pour quitter'}
   else{h.style.display='block';h.textContent=LINKS[t].label+' : cliquez la source puis la cible (la pointe va sur la cible) · Échap pour quitter'}
   renderCanvas();
 }
@@ -832,7 +839,7 @@ function renderProps(){
     const t=o.type;
     h+=`<h3>${tlabel(t)}</h3>`;
     if(t==='note'||t==='swimlane')h+=`<label>${t==='swimlane'?'Couloirs (un par ligne)':'Texte'}</label><textarea data-f="name" rows="4">${esc(o.name)}</textarea>`;
-    else if(!['start','end','flowfinal','fork','activation','destroy','divider'].includes(t))h+=`<label>${t==='fragment'?'Opérateur (alt, loop, opt…)':'Nom'}</label><input type="text" data-f="name" value="${esc(o.name)}">`;
+    else if(!['start','end','flowfinal','fork','activation','destroy'].includes(t))h+=`<label>${t==='fragment'?'Opérateur (alt, loop, opt…)':t==='divider'?'Condition du « else » (optionnelle)':'Nom'}</label><input type="text" data-f="name" value="${esc(o.name)}">`;
     if(t==='swimlane')h+=`<label>Orientation</label><select data-f="orient"><option value="row" ${o.orient==='row'?'selected':''}>Lignes (couloirs horizontaux)</option><option value="col" ${o.orient==='row'?'':'selected'}>Colonnes (couloirs verticaux)</option></select>`;
     if(t==='fragment')h+=`<label>Condition</label><input type="text" data-f="cond" value="${esc(o.cond||'')}"><label>Séparateur « else » (position depuis le haut, 0 = aucun)</label><input type="number" data-f="sep" min="0" step="10" value="${o.sep||0}">`;
     if(['class','dnode','component','artifact'].includes(t))h+=`<label>Stéréotype (optionnel)</label><input type="text" data-f="stereotype" value="${esc(o.stereotype||'')}" placeholder="entity, service…">`;
@@ -1091,6 +1098,10 @@ function dioEdge(e){
     else if(a===b){const sf=e.type==='self';s1=[x1+(sf?6:0),y];s2=[x1+(sf?12:0),y+22];pts=`<Array as="points"><mxPoint x="${x1+42}" y="${y}"/><mxPoint x="${x1+42}" y="${y+22}"/></Array>`}
     return `<mxCell id="${id}" value="${lab}" style="${st}verticalAlign=bottom;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="${s1[0]}" y="${s1[1]}" as="sourcePoint"/><mxPoint x="${s2[0]}" y="${s2[1]}" as="targetPoint"/>${pts}</mxGeometry></mxCell>`+(e.type==='self'?[[x1-6,y-(e.ot??14),e.bh||90],[x1,y+(e.it??10),e.ih||50]].map((b,i)=>`<mxCell id="${id}_b${i}" value="" style="html=1;points=[];perimeter=orthogonalPerimeter;outlineConnect=0;targetShapes=umlLifeline;portConstraint=eastwest;" vertex="1" parent="1"><mxGeometry x="${b[0]}" y="${b[1]}" width="12" height="${b[2]}" as="geometry"/></mxCell>`).join(''):'');
   }
+  if(L.ifc){
+    const da=dims(a),db=dims(b),ca={x:a.x+da.w/2,y:a.y+da.h/2},cb={x:b.x+db.w/2,y:b.y+db.h/2},ang=Math.round(Math.atan2(cb.y-ca.y,cb.x-ca.x)*180/Math.PI),mx=Math.round((ca.x+cb.x)/2-10),my=Math.round((ca.y+cb.y)/2-10);
+    return `<mxCell id="${id}_i" value="${lab}" style="shape=providedRequiredInterface;html=1;verticalLabelPosition=bottom;sketch=0;rotation=${ang};" vertex="1" parent="1"><mxGeometry x="${mx}" y="${my}" width="20" height="20" as="geometry"/></mxCell><mxCell id="${id}_1" style="html=1;endArrow=none;" edge="1" parent="1" source="n_${a.id}" target="${id}_i"><mxGeometry relative="1" as="geometry"/></mxCell><mxCell id="${id}_2" style="html=1;endArrow=none;" edge="1" parent="1" source="${id}_i" target="n_${b.id}"><mxGeometry relative="1" as="geometry"/></mxCell>`;
+  }
   const m=(txt,pos,sfx)=>txt?`<mxCell id="${id}_${sfx}" value="${esc(esc(txt))}" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="${id}"><mxGeometry x="${pos}" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry></mxCell>`:'';
   return `<mxCell id="${id}" value="${lab}" style="${st}" edge="1" parent="1" source="n_${a.id}" target="n_${b.id}"><mxGeometry relative="1" as="geometry"/></mxCell>`+m(e.fromMult,-0.8,'a')+m(e.toMult,0.8,'b');
 }
@@ -1160,7 +1171,7 @@ function seqText(p,f,out,notes){
     const op=String(fr.name||'').trim().toLowerCase();
     before[idx[0]].push({t:'open',kw:KW.includes(op)?op:'opt',label:KW.includes(op)?'':fr.name,cond:fr.cond||''});
     p.nodes.filter(d=>d.type==='divider'&&d.y>fr.y&&d.y<fr.y+fr.h).forEach(d=>{
-      const j=idx.find(i=>items[i].y>d.y);if(j!==undefined&&j>idx[0])before[j].push({t:'else'});
+      const j=idx.find(i=>items[i].y>d.y);if(j!==undefined&&j>idx[0])before[j].push({t:'else',label:d.name});
     });
     if(fr.sep>0){const j=idx.find(i=>items[i].y>fr.y+fr.sep);if(j!==undefined&&j>idx[0])before[j].push({t:'else'})}
     after[idx.at(-1)].unshift({t:'end'});
@@ -1177,7 +1188,7 @@ function seqText(p,f,out,notes){
       stack.push(x.kw);
       const txt=[x.label,x.cond].filter(Boolean).join(' ');
       out.push(f==='puml'?`${x.kw}${txt?' '+txt:''}`:`${pad}${x.kw}${txt?' '+txt:''}`);
-    }else if(x.t==='else')out.push(`${pad}${f==='mmd'&&stack.at(-1)==='par'?'and':'else'}`);
+    }else if(x.t==='else')out.push(`${pad}${f==='mmd'&&stack.at(-1)==='par'?'and':'else'}${x.label?' '+String(x.label).replace(/\n/g,' '):''}`);
     else if(x.t==='end'){stack.pop();out.push(`${pad}end`)}
     else if(x.t==='act')out.push(`${pad}activate ${x.id}`);
     else if(x.t==='deact')out.push(`${pad}deactivate ${x.id}`);
@@ -1253,6 +1264,7 @@ function toPlantUML(p){
   p.edges.forEach(e=>{
     const a=p.nodes.find(n=>n.id===e.from),b=p.nodes.find(n=>n.id===e.to);if(!a||!b)return;
     const ra=ref(a),rb=ref(b);if(!ra||!rb){notes.push(`Un lien vers « ${(!ra?a:b).type} » n'a pas pu être converti.`);return}
+    if(e.type==='ifc'){const iid='ifc_'+e.id;out.push(`interface "${qp(e.label||'Interface')}" as ${iid}`,`${ra} -- ${iid}`,`${rb} ..> ${iid}`);return}
     const ar=k==='activity'?(e.type==='noteLink'?'..':'-->'):(PU_ARROW[e.type]||'--');
     const fm=k==='class'&&e.fromMult?` "${qp(e.fromMult)}"`:'',tm=k==='class'&&e.toMult?` "${qp(e.toMult)}"`:'',lb=edgeLabel(e);
     out.push(`${ra}${fm} ${ar}${tm} ${rb}${lb?' : '+qp(lb):''}`);
@@ -1335,6 +1347,7 @@ function toMermaid(p){
   const MA={assoc:'---',directed:'-->',flow:'-->',depend:'-.->',include:'-.->',extend:'-.->',realize:'-.->',inherit:'-->',noteLink:'-.-'};
   p.edges.forEach(e=>{
     if(!shown.has(e.from)||!shown.has(e.to))return;
+    if(e.type==='ifc'){const iid='ifc'+e.id.replace(/\W/g,'');out.push(`    ${iid}(("${qm(e.label||'Interface')}"))`,`    ${ids[e.from]} --- ${iid}`,`    ${ids[e.to]} -.-> ${iid}`);return}
     let lb=edgeLabel(e).replace(/<<|>>/g,m=>m==='<<'?'«':'»');if(!lb&&e.type==='inherit')lb='hérite';
     out.push(`    ${ids[e.from]} ${MA[e.type]||'-->'}${lb?`|"${qm(lb)}"|`:''} ${ids[e.to]}`);
   });
@@ -1397,7 +1410,7 @@ const HELP=[
 <tr><td><b>Classes</b></td><td>Cadre, classe, abstraite, interface, note</td><td>Association, assoc. dirigée, héritage, implémentation, dépendance, agrégation, composition</td></tr>
 <tr><td><b>Cas d'utilisation</b></td><td>Cadre, système, cas, acteur, note</td><td>Association, héritage (généralisation), «include», «extends»</td></tr>
 <tr><td><b>Activité</b></td><td>Cadre, activité, couloirs, début, action, décision, barre fork/join, fin, fin de flux, note</td><td>Flux</td></tr>
-<tr><td><b>Composants</b></td><td>Cadre, composant, port, interface, note</td><td>Association, dépendance</td></tr>
+<tr><td><b>Composants</b></td><td>Cadre, composant, port, interface, note</td><td>Association, dépendance, <b>interface</b> (○– : choisissez « Interface » puis cliquez le composant qui la fournit, puis celui qui l’utilise)</td></tr>
 <tr><td><b>Déploiement</b></td><td>Cadre, nœud, composant, artefact, note</td><td>Association</td></tr>
 <tr><td><b>Séquence</b></td><td>Cadre, ligne de vie, acteur, entité, frontière, contrôle, activation, destruction, fragment, séparateur, note</td><td>Appel, asynchrone, retour, auto-appel, message trouvé, message perdu</td></tr></table>
 <p>Le <b>lien de note</b> (trait pointillé) relie une note à n'importe quel élément, dans tous les types.</p>
